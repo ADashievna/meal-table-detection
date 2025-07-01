@@ -1,0 +1,25 @@
+model_path: "models\\best_step4_batchs.pt"
+dataset_path: "C:\\personal\\projects\\meal-table-detection\\data"
+dataset_yaml_path: "C:\\personal\\projects\\meal-table-detection\\data\\data.yaml"
+video_path: "videos\\4_rotated.mov"
+
+plate_state_ioa_threshold: 0.8
+
+food_classes:
+  - bone-in steak
+  - borscht
+  - caesar salad
+  - cheese soup
+  - flatbread
+  - greek salad
+
+plate_classes:
+  - plate
+  - wooden board
+
+plate_state_classes:
+  - plate bottom
+
+other_classes:
+  - shot
+  - tea
