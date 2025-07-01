@@ -14,3 +14,8 @@ MODEL_PATH = _config['model_path']
 VIDEO_PATH = _config.get('video_path', None)
 DATASET_PATH = _config.get('dataset_path', None)
 DATASET_YAML_PATH = _config.get('dataset_yaml_path', None)
+
+DESIRED_WINDOWS_WIDTH = _config.get('desired_windows_width', 1280)
+DESIRED_WINDOWS_HEIGHT = _config.get('desired_windows_height', 720)
+
+MIN_CONFIDENCE_LEVEL = _config.get('min_confidence_level', 0.0)

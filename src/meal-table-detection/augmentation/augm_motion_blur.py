@@ -3,11 +3,10 @@ import random, cv2
 import albumentations as A
 from shutil import copy2
 from tqdm import tqdm
-import logging
+import argparse
 
 IMAGES = "images"
 LABELS = "labels"
-LOGGER = logging.getLogger(__name__)
 
 def create_dirs(dst_root: Path) -> tuple[Path, Path]:
     img_dir = dst_root / IMAGES
@@ -21,7 +20,6 @@ def apply_motion_blur(image_path: Path, transform: A.BasicTransform) -> any:
     return transform(image=img)["image"] if img is not None else None
 
 def augment(src: Path, dst: Path, prob: float, blur_range: tuple[int, int]) -> None:
-    LOGGER.info("Augmenting images with motion blur")
 
     dst_img_dir, dst_lbl_dir = create_dirs(dst)
     src_img_dir = src / IMAGES
@@ -34,12 +32,10 @@ def augment(src: Path, dst: Path, prob: float, blur_range: tuple[int, int]) -> N
             continue
         lbl_path = src_lbl_dir / f"{img_path.stem}.txt"
         if not lbl_path.exists():
-            LOGGER.warning("Label file not found for %s", lbl_path)
             continue
 
         aug_img = apply_motion_blur(img_path, tfm)
         if aug_img is None:
-            LOGGER.warning("Cannot read image", img_path)
             continue
 
         out_img = dst_img_dir / f"{img_path.stem}_motion.jpg"
@@ -50,15 +46,42 @@ def augment(src: Path, dst: Path, prob: float, blur_range: tuple[int, int]) -> N
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+    parser = argparse.ArgumentParser(description="Run motion blur augmentation script, expects source and target paths."
+                                                 " In the source path, there should be 'images' and 'labels' directories with images and labels in YOLO format.")
+    parser.add_argument(
+        "--source_path",
+        type=str,
+        required=True,
+        help="Path to the dataset for augmentation (should contain 'images' and 'labels' directories)."
+    )
+    parser.add_argument(
+        "--target_path",
+        type=str,
+        required=True,
+        help="Path to the directory to save data after augmentation"
+    )
+    parser.add_argument(
+        "--probability",
+        type=float,
+        required=True,
+        help="Probability of applying motion blur to each image (0.0 - 1.0)."
+    )
+    parser.add_argument(
+        "--blur_level_range",
+        type=int,
+        nargs=2,
+        required=True,
+        help="Two integers specifying the min and max blur level (e.g., 3 7"
+    )
+    args = parser.parse_args()
 
-    source = Path(r"C:\personal\projects\meal-table-detection\data\train")
-    target = Path(r"C:\personal\projects\meal-table-detection\data\augmented")
-    probability = 0.5
-    blur_level_range = (5, 31)
-    augment(source, target, probability, blur_level_range)
+    augment(
+        Path(args.source_path),
+        Path(args.target_path),
+        args.probability,
+        args.blur_level_range
+    )
 
-    LOGGER.info("Done.")
 
 
 if __name__ == "__main__":

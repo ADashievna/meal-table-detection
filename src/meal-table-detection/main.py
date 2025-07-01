@@ -1,49 +1,55 @@
 from pathlib import Path
-from typing import Dict, List, Tuple
 import cv2
-import matplotlib.pyplot as plt
+from ultralytics.utils.plotting import Colors
 from ultralytics import YOLO
-import plate_logic
+import plate_state_logic
 import config
+from structures import *
 
-def _color_palette(n: int = 10) -> List[Tuple[int, int, int]]:
-    cmap = plt.get_cmap("tab10")
-    return  [(int(r * 255), int(g * 255), int(b * 255)) for r, g, b in cmap.colors]
+TEXT_FONT = cv2.FONT_HERSHEY_PLAIN
+TEXT_FONT_SCALE = 5
+TEXT_FONT_THICKNESS = 8
+LABEL_OFFSET = 8
+BBOX_THICKNESS = 13
+WINDOW_NAME = "Result"
+WHITE_COLOR = (255, 255, 255)
 
-_COLORS = _color_palette()
-_COLOR_CACHE: Dict[str, Tuple[int, int, int]] = {}
+colors = Colors()
+colors_cache: Dict[str, int] = {}
 
-def color_for(label: str) -> Tuple[int, int, int]:
-    if label not in _COLOR_CACHE:
-        _COLOR_CACHE[label] = _COLORS[len(_COLOR_CACHE) % len(_COLORS)]
-    return _COLOR_CACHE[label]
+def color_for(label: str) -> tuple:
+    if label not in colors_cache:
+        colors_cache[label] = len(colors_cache)
+    return colors(colors_cache[label], bgr=True)
 
-def draw_overlay(frame, objs) -> None:
-    for o in objs:                                 # bboxes
-        x1, y1, x2, y2 = map(int, o["bbox"])
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color_for(o["label"]), 15)
+def draw_overlay(frame, items_to_draw: list[TableItem]) -> None:
+    for item in items_to_draw:
+        x1, y1, x2, y2 = map(int, item.bbox.as_xyxy())
+        cv2.rectangle(frame, (x1, y1), (x2, y2),
+                      color_for(item.label), BBOX_THICKNESS)
 
-    for o in objs:                                 # labels
-        x1, y1, *_ = map(int, o["bbox"])
-        txt = f'{o["label"]} ({o["score"]:.2f})'
-        cv2.putText(frame, txt, (x1, y1 - 8),
-                    cv2.FONT_HERSHEY_PLAIN, 5, (255, 255, 255), 6)
+    for item in items_to_draw:
+        x1, y1, _, _ = map(int, item.bbox.as_xyxy())
+        txt = f"{item.label} ({item.score:.2f})"
+        cv2.putText(frame, txt, (x1, y1 - LABEL_OFFSET),
+                    TEXT_FONT, TEXT_FONT_SCALE,
+                    WHITE_COLOR, TEXT_FONT_THICKNESS)
 
 
-def run(model_path: Path, video_path: Path, conf: float = 0.0, window_scale: float = 0.25) -> None:
+def run(model_path: Path, video_path: Path, min_confidence: float = 0.0) -> None:
     model = YOLO(model_path)
 
-    for res in model.track(source=str(video_path), stream=True, conf=conf):
-        frame = res.orig_img.copy()
-        objs = list(plate_logic.post_process_result(res).values())
+    for model_result in model.track(source=str(video_path), stream=True, conf=min_confidence):
+        current_frame = model_result.orig_img.copy()
+        refined_items = plate_state_logic.refine_detections(model_result)
 
-        draw_overlay(frame, objs)
+        draw_overlay(current_frame, refined_items)
+        current_frame = cv2.resize(current_frame, (config.DESIRED_WINDOWS_HEIGHT, config.DESIRED_WINDOWS_WIDTH),
+                                   interpolation=cv2.INTER_AREA)
+        cv2.imshow(WINDOW_NAME, current_frame)
 
-        if window_scale != 1.0:
-            frame = cv2.resize(frame, None, fx=window_scale, fy=window_scale)
-
-        cv2.imshow("Result", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        cv2.waitKey(1)
+        if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
             break
 
     cv2.destroyAllWindows()
@@ -52,8 +58,7 @@ def main() -> None:
     run(
         Path(config.MODEL_PATH),
         Path(config.VIDEO_PATH),
-        0.1,
-        0.2,
+        config.MIN_CONFIDENCE_LEVEL, # Confidence threshold for detection
     )
 
 if __name__ == "__main__":

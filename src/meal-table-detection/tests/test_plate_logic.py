@@ -1,123 +1,117 @@
-from types import ModuleType
-import numpy as np
-from mockito import when, unstub, ANY, verify
 import sys
+import types
+import numpy as np
+from mockito import when, verify, unstub, ANY
+from structures import BBox, TableItem, Category
+import utils.bbox_utils as bbox_utils
 
-bbox_utils = ModuleType("utils.bbox_utils")
-def always_inside(*_, **__):
-    return True
-bbox_utils.is_inside = always_inside
+config = types.ModuleType("config")
+config.PLATE_CLASSES            = {"plate"}
+config.FOOD_CLASSES             = {"food"}
+config.PLATE_STATE_CLASSES      = {"state"}
+config.PLATE_STATE_IOA_THRESHOLD = 0.7
+sys.modules["config"] = config
 
-config = ModuleType("config")
-config.PLATE_CLASSES        = ["plate"]
-config.FOOD_CLASSES         = ["steak"]
-config.PLATE_STATE_CLASSES  = ["state"]
-config.PLATE_STATE_IOA_THRESHOLD = 0.0
+import plate_state_logic
 
-sys.modules["utils.bbox_utils"] = bbox_utils
-sys.modules["config"]           = config
+class _Arr:
+    def __init__(self, data): self._a = np.asarray(data, dtype=float)
+    def cpu(self): return self
+    def numpy(self): return self._a
 
-import importlib
-plate_logic = importlib.import_module("plate_logic")
-
-class _BoxAttr:
-    def __init__(self, data):
-        self._arr = np.asarray(data)
-    def cpu(self):
-        return self
-    def numpy(self):
-        return self._arr
-
-class DummyBoxes:
-    def __init__(self, xyxy, cls, conf):
-        self.xyxy = _BoxAttr(xyxy)
-        self.cls  = _BoxAttr(cls)
-        self.conf = _BoxAttr(conf)
+class _Boxes:
+    def __init__(self, xywh, cls, conf):
+        self.xywh = _Arr(xywh); self.cls = _Arr(cls); self.conf = _Arr(conf)
 
 class DummyResult:
-    def __init__(self, xyxy, cls, conf, names, shape):
-        self.boxes = DummyBoxes(xyxy, cls, conf)
-        self.names = names
-        self.orig_shape = shape
+    def __init__(self, xywh, cls, conf, names):
+        self.boxes = _Boxes(xywh, cls, conf); self.names = names
 
+def bb(cx, cy, w, h):
+    return BBox(cx, cy, w, h)
 
-def test_find_food_plate_picks_smallest():
-    food  = (10, 10, 40, 40)
-    big   = (0, 0, 100, 100)
-    small = (5, 5, 60, 60)
-    plates = [(0, big, "plate", 0.9), (1, small, "plate", 0.8)]
+def test_find_food_plate_returns_smallest_plate():
+    plate_big   = TableItem(0, bb(50, 50, 100, 100), "plate", 0.95)
+    plate_small = TableItem(1, bb(55, 55, 40,  40),  "plate", 0.93)
+    food_bbox   = bb(55, 55, 10, 10)
 
-    when(bbox_utils).is_inside(food, big, 200, 200).thenReturn(True)
-    when(bbox_utils).is_inside(food, small, 200, 200).thenReturn(True)
+    when(bbox_utils).is_inside(food_bbox.as_xyxy(), plate_big.bbox.as_xyxy()).thenReturn(True)
+    when(bbox_utils).is_inside(food_bbox.as_xyxy(), plate_small.bbox.as_xyxy()).thenReturn(True)
 
-    chosen = plate_logic.find_food_plate(food, plates, 200, 200)
-    assert chosen[1] == small
-    unstub()
+    try:
+        chosen = plate_state_logic.find_food_plate(food_bbox, [plate_big, plate_small])
+        assert chosen is plate_small
+        verify(bbox_utils, times=2).is_inside(ANY, ANY)
+    finally:
+        unstub()
 
 
 def test_find_food_plate_returns_none_if_not_inside():
-    food  = (10, 10, 40, 40)
-    plate = (0, 0, 100, 100)
-    when(bbox_utils).is_inside(food, plate, ANY, ANY).thenReturn(False)
-
-    assert plate_logic.find_food_plate(food, [(0, plate, "plate", .9)], 200, 200) is None
-    unstub()
-
-
-def test_find_food_plate_none_for_empty_plate_list():
-    assert plate_logic.find_food_plate((1,1,10,10), [], 200, 200) is None
-
-def _run(res):
-    return plate_logic.post_process_result(res)
-
-def test_food_inside_plate_borrow_plate_bbox():
-    plate_box = (0, 0, 100, 100)
-    food_box = (25, 25, 75, 75)
-    xyxy = [plate_box, food_box]
-    cls = [0, 1]
-    conf = [.9, .8]
-    names = {0: "plate", 1: "steak"}
-
-    when(bbox_utils).is_inside(ANY, ANY, ANY, ANY).thenReturn(True)
-
-    res = DummyResult(xyxy, cls, conf, names, (200, 200))
-    out = _run(res)
-
-    assert len(out) == 1
-    rec = out[0]
-    assert rec["label"] == "steak"
-    assert rec["bbox"] == list(plate_box)
-
-    unstub()
-
-
-def test_food_without_plate_keeps_own_bbox():
-    food_box = (25, 25, 75, 75)
-    xyxy = [food_box]
-    cls  = [1]        # steak
-    conf = [.8]
-    names = {1: "steak"}
+    plate = TableItem(0, bb(50, 50, 40, 40), "plate", 0.9)
+    food_bbox = bb(150, 150, 10, 10)
 
     when(bbox_utils).is_inside(...).thenReturn(False)
 
-    out = _run(DummyResult(xyxy, cls, conf, names, (200, 200)))
-    rec = out[0]
-    assert rec["label"] == "steak"
-    assert rec["bbox"]  == list(food_box)
-    unstub()
+    try:
+        assert plate_state_logic.find_food_plate(food_bbox, [plate]) is None
+        verify(bbox_utils).is_inside(food_bbox.as_xyxy(), plate.bbox.as_xyxy())
+    finally:
+        unstub()
 
 
-def test_empty_plate_prefix_added():
-    plate_box = (0, 0, 100, 100)
-    state_box = (10, 10, 20, 20)
-    xyxy = [plate_box, state_box]
-    cls  = [0, 2]               # plate, state
-    conf = [.9, .7]
-    names = {0: "plate", 2: "state"}
+def test_classify_detections_places_boxes_in_buckets():
+    xywh  = [[50, 50, 100, 100],  [55, 55, 10, 10],  [150, 150, 20, 20]]
+    cls   = [0, 1, 2]
+    conf  = [0.9, 0.8, 0.75]
+    names = {0: "plate", 1: "food", 2: "state"}
 
-    when(bbox_utils).is_inside(...).thenReturn(True)
+    buckets = plate_state_logic.classify_detections(DummyResult(xywh, cls, conf, names))
 
-    out = _run(DummyResult(xyxy, cls, conf, names, (200, 200)))
-    rec = out[0]
-    assert rec["label"] == "empty plate"
-    unstub()
+    assert len(buckets[Category.PLATE])        == 1
+    assert len(buckets[Category.FOOD])         == 1
+    assert len(buckets[Category.STATE_OBJECT]) == 1
+
+
+def test_form_updated_items_replaces_plate_with_food():
+    plate = TableItem(0, bb(50, 50, 100, 100), "plate", 0.9)
+    food  = TableItem(1, bb(50, 50, 10, 10),   "food",  0.8)
+
+    when(bbox_utils).is_inside(food.bbox.as_xyxy(), plate.bbox.as_xyxy()).thenReturn(True)
+
+    buckets = {
+        Category.PLATE:  [plate],
+        Category.FOOD:   [food],
+        Category.STATE_OBJECT: [],
+        Category.OTHER:  []
+    }
+
+    try:
+        updated = plate_state_logic.form_updated_items(buckets)
+        assert len(updated) == 1
+        assert updated[0].idx   == 0
+        assert updated[0].label == "food"
+    finally:
+        unstub()
+
+
+def test_form_updated_items_marks_empty_plate():
+    plate = TableItem(0, bb(50, 50, 100, 100), "plate", 0.9)
+    state = TableItem(2, bb(50, 50, 20,  20),  "state", 0.7)
+
+    when(bbox_utils).is_inside(state.bbox.as_xyxy(),
+                               plate.bbox.as_xyxy(),
+                               config.PLATE_STATE_IOA_THRESHOLD).thenReturn(True)
+
+    buckets = {
+        Category.PLATE:  [plate],
+        Category.FOOD:   [],
+        Category.STATE_OBJECT: [state],
+        Category.OTHER:  []
+    }
+
+    try:
+        updated = plate_state_logic.form_updated_items(buckets)
+        assert updated[0].label == "empty plate"
+    finally:
+        unstub()
+

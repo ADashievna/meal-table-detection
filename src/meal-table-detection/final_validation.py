@@ -16,11 +16,11 @@ def evaluate(model: YOLO, dataset_yaml: Path, split: str = "test", plots: bool =
         split=split,
         plots=plots
     )
-    mp, mr  = r.box.mp, r.box.mr
-    f1      = 2 * mp * mr / float(mp + mr)
+    precision, recall  = r.box.mp, r.box.mr
+    f1 = 2 * precision * recall / float(precision + recall)
     return Metrics(
-        precision=mp,
-        recall=mr,
+        precision=precision,
+        recall=recall,
         f1=f1,
         map_50_95 = r.box.map,
         map_50    = r.box.map50
