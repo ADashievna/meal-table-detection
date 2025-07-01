@@ -23,7 +23,6 @@ Thumbs.db
 
 # Config files and datasets
 config
-data
-data*
+data_*
 dataset
 runs

@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../val/images
+test: ../test/images
+
+nc: 11
+names: ['bone-in steak', 'borscht', 'caesar salad', 'cheese soup', 'flatbread', 'greek salad', 'plate', 'plate bottom', 'shot', 'tea', 'wooden board']
+
+roboflow:
+  workspace: catsaicompanion
+  project: meal-detection-zpryj
+  version: 7
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/catsaicompanion/meal-detection-zpryj/dataset/7
